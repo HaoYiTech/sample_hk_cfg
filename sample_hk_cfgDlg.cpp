@@ -293,7 +293,7 @@ LRESULT Csample_hk_cfgDlg::OnDeviceLoginSuccess(WPARAM wParam, LPARAM lParam)
 		LONG  nDvrStartChan = m_HKDeviceInfo.byStartChan;
 		DWORD dwReturn = 0;
 		//(目前通过WEB配置DVR) 获取设备所有编码能力 => 需要解析xml，让程序自动选择或用户手动选择，写入设备当中...
-		TCHAR szEncAbility[MAX_PATH*40] = {0};
+		/*TCHAR szEncAbility[MAX_PATH*40] = {0};
 		if( !NET_DVR_GetDeviceAbility(m_HKLoginID, DEVICE_ENCODE_ALL_ABILITY, NULL, 0, szEncAbility, MAX_PATH*20) ) {
 			dwErr = NET_DVR_GetLastError();
 			MsgLogGM(dwErr);
@@ -308,7 +308,7 @@ LRESULT Csample_hk_cfgDlg::OnDeviceLoginSuccess(WPARAM wParam, LPARAM lParam)
 			MsgLogGM(dwErr);
 			break;
 		}
-		TRACE("设备压缩能力 - V2\n%s\n", szEncAbility);
+		TRACE("设备压缩能力 - V2\n%s\n", szEncAbility);*/
 		// 获取IPC的rtsp端口号...
 		NET_DVR_RTSPCFG dvrRtsp = {0};
 		if( !NET_DVR_GetRtspConfig(m_HKLoginID, 0, &dvrRtsp, sizeof(NET_DVR_RTSPCFG)) ) {
