@@ -41,6 +41,7 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
+    <OutDir>bin\</OutDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
@@ -48,13 +49,16 @@
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <PrecompiledHeader>Use</PrecompiledHeader>
-      <WarningLevel>Level3</WarningLevel>
+      <WarningLevel>TurnOffAllWarnings</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_WINDOWS;_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>common;HKNet</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>HKNet</AdditionalLibraryDirectories>
+      <AdditionalDependencies>Version.lib;Psapi.lib;HCNetSDK.lib</AdditionalDependencies>
     </Link>
     <Midl>
       <MkTypLibCompatible>false</MkTypLibCompatible>
@@ -99,6 +103,16 @@
     <None Include="res\sample_hk_cfg.rc2" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="common\GMError.h" />
+    <ClInclude Include="common\HYDefine.h" />
+    <ClInclude Include="common\HyperLink.h" />
+    <ClInclude Include="common\OSThread.h" />
+    <ClInclude Include="common\Socket.h" />
+    <ClInclude Include="common\SocketUtils.h" />
+    <ClInclude Include="common\StrPtrLen.h" />
+    <ClInclude Include="common\tinyxml.h" />
+    <ClInclude Include="common\UDPSocket.h" />
+    <ClInclude Include="common\UtilTool.h" />
     <ClInclude Include="Resource.h" />
     <ClInclude Include="sample_hk_cfg.h" />
     <ClInclude Include="sample_hk_cfgDlg.h" />
@@ -106,6 +120,16 @@
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="common\HyperLink.cpp" />
+    <ClCompile Include="common\OSThread.cpp" />
+    <ClCompile Include="common\Socket.cpp" />
+    <ClCompile Include="common\SocketUtils.cpp" />
+    <ClCompile Include="common\StrPtrLen.cpp" />
+    <ClCompile Include="common\tinyxml.cpp" />
+    <ClCompile Include="common\tinyxmlerror.cpp" />
+    <ClCompile Include="common\tinyxmlparser.cpp" />
+    <ClCompile Include="common\UDPSocket.cpp" />
+    <ClCompile Include="common\UtilTool.cpp" />
     <ClCompile Include="sample_hk_cfg.cpp" />
     <ClCompile Include="sample_hk_cfgDlg.cpp" />
     <ClCompile Include="stdafx.cpp">
