@@ -80,9 +80,7 @@ BEGIN_MESSAGE_MAP(Csample_hk_cfgDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BUTTON_LOGOUT, &Csample_hk_cfgDlg::OnBnClickedButtonLogout)
 END_MESSAGE_MAP()
 
-
 // Csample_hk_cfgDlg 消息处理程序
-
 BOOL Csample_hk_cfgDlg::OnInitDialog()
 {
 	CDialogEx::OnInitDialog();
@@ -285,7 +283,190 @@ LRESULT Csample_hk_cfgDlg::OnDeviceLoginSuccess(WPARAM wParam, LPARAM lParam)
 {
 	// 打印异步登录成功消息...
 	TRACE("=== 异步登录成功... ===\n");
-	// 进行IPC的配置和判断...
+	///////////////////////////////////////////////
+	// 对IPC进行动态配置...
+	///////////////////////////////////////////////
+	LONG dwErr = GM_NoErr;
+	ASSERT( m_HKPlayID < 0 && m_HKLoginID >= 0 );
+	do {
+		// IPC的第一个通道，一个IPC可能有多个通道...
+		LONG  nDvrStartChan = m_HKDeviceInfo.byStartChan;
+		DWORD dwReturn = 0;
+		//(目前通过WEB配置DVR) 获取设备所有编码能力 => 需要解析xml，让程序自动选择或用户手动选择，写入设备当中...
+		TCHAR szEncAbility[MAX_PATH*40] = {0};
+		if( !NET_DVR_GetDeviceAbility(m_HKLoginID, DEVICE_ENCODE_ALL_ABILITY, NULL, 0, szEncAbility, MAX_PATH*20) ) {
+			dwErr = NET_DVR_GetLastError();
+			MsgLogGM(dwErr);
+			break;
+		}
+		TRACE("设备压缩能力 - V1\n%s\n", szEncAbility);
+		// 获取音视频压缩能力...
+		memset(szEncAbility, 0, MAX_PATH*40);
+		TCHAR * lpInput = "<AudioVideoCompressInfo><AudioChannelNumber>1</AudioChannelNumber><VideoChannelNumber>1</VideoChannelNumber></AudioVideoCompressInfo>";
+		if( !NET_DVR_GetDeviceAbility(m_HKLoginID, DEVICE_ENCODE_ALL_ABILITY_V20, lpInput, strlen(lpInput), szEncAbility, MAX_PATH*40) ) {
+			dwErr = NET_DVR_GetLastError();
+			MsgLogGM(dwErr);
+			break;
+		}
+		TRACE("设备压缩能力 - V2\n%s\n", szEncAbility);
+		// 获取IPC的rtsp端口号...
+		NET_DVR_RTSPCFG dvrRtsp = {0};
+		if( !NET_DVR_GetRtspConfig(m_HKLoginID, 0, &dvrRtsp, sizeof(NET_DVR_RTSPCFG)) ) {
+			dwErr = NET_DVR_GetLastError();
+			MsgLogGM(dwErr);
+			break;
+		}
+		// 调用正确，打印rtsp端口...
+		TRACE("\nRTSP端口：%lu\n", dvrRtsp.wPort);
+		// 获取更为多码流的配置 => NET_DVR_GetDeviceConfig(NET_DVR_GET_MULTI_STREAM_COMPRESSIONCFG) => NET_DVR_MULTI_STREAM_COMPRESSIONCFG_COND NET_DVR_MULTI_STREAM_COMPRESSIONCFG
+		// 获取压缩配置参数信息 => 包含了 主码流 和 子码流 ...
+		NET_DVR_COMPRESSIONCFG_V30 dvrCompressCfg = {0};
+		if( !NET_DVR_GetDVRConfig(m_HKLoginID, NET_DVR_GET_COMPRESSCFG_V30, nDvrStartChan, &dvrCompressCfg, sizeof(dvrCompressCfg), &dwReturn) ) {
+			dwErr = NET_DVR_GetLastError();
+			MsgLogGM(dwErr);
+			break;
+		}
+		// 判断主码流或子码流的视频类型是否正确 => 复合流
+		if( dvrCompressCfg.struNormHighRecordPara.byStreamType != 1 ||
+			dvrCompressCfg.struNetPara.byStreamType != 1 ) {
+			dwErr = GM_DVR_VType_Err;
+			MsgLogGM(dwErr);
+			break;
+		}
+		// 判断主码流或子码流视频编码类型是否正确 => H264
+		if( dvrCompressCfg.struNormHighRecordPara.byVideoEncType != NET_DVR_ENCODER_H264 ||
+			dvrCompressCfg.struNetPara.byVideoEncType != NET_DVR_ENCODER_H264 ) {
+			dwErr = GM_DVR_VEnc_Err;
+			MsgLogGM(dwErr);
+			break;
+		}
+		TRACE("=== RTSP - Video is Encoder H264 ===\n");
+		// 判断主码流或子码流音频编码类型是否正确 => AAC
+		// 音频格式不对，只是报错，但不退出，RTSP会话会自动丢弃音频...
+		if( dvrCompressCfg.struNormHighRecordPara.byAudioEncType != AUDIOTALKTYPE_AAC ||
+			dvrCompressCfg.struNetPara.byAudioEncType != AUDIOTALKTYPE_AAC ) {
+			MsgLogGM(GM_DVR_AEnc_Err);
+			//dwErr = GM_DVR_AEnc_Err;
+			//MsgLogGM(dwErr);
+			//break;
+		}
+		TRACE("=== RTSP - Audio is Encoder AAC ===\n");
+		// 调整一些参数 => 根据设备的编码能力来设置，而不是随意设置的...
+		// 从配置文件中读取并设置主码流大小和子码流大小 => 自定义码流...
+		dvrCompressCfg.struNormHighRecordPara.dwVideoBitrate = 1024 * 1024;
+		dvrCompressCfg.struNormHighRecordPara.dwVideoBitrate |= 0x80000000;
+		dvrCompressCfg.struNetPara.dwVideoBitrate = 500 * 1024;
+		dvrCompressCfg.struNetPara.dwVideoBitrate |= 0x80000000;
+		// 设置 主码流 和 子码流 的配置参数信息...
+		if( !NET_DVR_SetDVRConfig(m_HKLoginID, NET_DVR_SET_COMPRESSCFG_V30, nDvrStartChan, &dvrCompressCfg, sizeof(dvrCompressCfg)) ) {
+			dwErr = NET_DVR_GetLastError();
+			MsgLogGM(dwErr);
+			break;
+		}
+		TRACE("=== 主码流：1Mbps，子码流：500kbps ===\n");
+		// 获取DVR设备的前端参数...
+		NET_DVR_CAMERAPARAMCFG dvrCCDParam = {0};
+		if( !NET_DVR_GetDVRConfig(m_HKLoginID, NET_DVR_GET_CCDPARAMCFG, nDvrStartChan, &dvrCCDParam, sizeof(dvrCCDParam), &dwReturn) ) {
+			dwErr = NET_DVR_GetLastError();
+			MsgLogGM(dwErr);
+			break;
+		}
+		// 对镜像模式进行处理 => 镜像：0 关闭;1 左右;2 上下;3 中间
+		BOOL bOpenMirror = true;
+		dvrCCDParam.byMirror = (bOpenMirror ? 3 : 0);
+		if( !NET_DVR_SetDVRConfig(m_HKLoginID, NET_DVR_SET_CCDPARAMCFG, nDvrStartChan, &dvrCCDParam, sizeof(dvrCCDParam)) ) {
+			dwErr = NET_DVR_GetLastError(); // 注意这个错误号：NET_DVR_NETWORK_ERRORDATA
+			MsgLogGM(dwErr);
+			break;
+		}
+		// 获取图像参数 => OSD | 坐标 | 日期 | 星期 | 字体 | 属性
+		NET_DVR_PICCFG_V40 dvrPicV40 = {0};
+		if( !NET_DVR_GetDVRConfig(m_HKLoginID, NET_DVR_GET_PICCFG_V40, nDvrStartChan, &dvrPicV40, sizeof(dvrPicV40), &dwReturn) ) {
+			dwErr = NET_DVR_GetLastError();
+			MsgLogGM(dwErr);
+			break;
+		}
+		// 从通道配置文件中获取是否开启OSD...
+		BOOL bOpenOSD = true;
+		// 设置图像格式 => OSD | 坐标 | 日期 | 星期 | 字体 | 属性
+		//strcpy((char*)dvrPicV40.sChanName, "Camera"); // 通道名称...
+		//dvrPicV40.dwVideoFormat = 2; // 视频制式：0- 不支持，1- NTSC，2- PAL 
+		//dvrPicV40.dwShowChanName = 0; // 预览的图象上是否显示通道名称：0-不显示，1-显示（区域大小704*576） 
+		//dvrPicV40.wShowNameTopLeftX = 200; // 通道名称显示位置的x坐标
+		//dvrPicV40.wShowNameTopLeftY = 100; // 通道名称显示位置的y坐标
+		//dvrPicV40.dwEnableHide = 1; // 是否启动隐私遮蔽：0-否，1-是
+		dvrPicV40.dwShowOsd = bOpenOSD; // 预览的图象上是否显示OSD：0-不显示，1-显示（区域大小704*576）
+		dvrPicV40.wOSDTopLeftX = 300; // OSD的x坐标
+		dvrPicV40.wOSDTopLeftY = 20; // OSD的y坐标
+		dvrPicV40.byOSDType = 2; // OSD类型(年月日格式) 0－XXXX-XX-XX 年月日; 1－XX-XX-XXXX 月日年; 2－XXXX年XX月XX日; 3－XX月XX日XXXX年; 4－XX-XX-XXXX 日月年; 5－XX日XX月XXXX年; 6－xx/xx/xxxx 月/日/年; 7－xxxx/xx/xx 年/月/日; 8－xx/xx/xxxx 日/月/年
+		dvrPicV40.byDispWeek = 0; // 是否显示星期：0-不显示，1-显示
+		dvrPicV40.byOSDAttrib = 2; // OSD属性（透明/闪烁）：1－透明，闪烁；2－透明，不闪烁；3－闪烁，不透明；4－不透明，不闪烁
+		dvrPicV40.byHourOSDType = 0; // 小时制：0表示24小时制，1表示12小时制或am/pm 
+		dvrPicV40.byFontSize = 0xFF; // 字体大小：0- 16*16(中)/8*16(英)，1- 32*32(中)/16*32(英)，2- 64*64(中)/32*64(英)，3- 48*48(中)/24*48(英)，4- 24*24(中)/12*24(英)，5- 96*96(中)/48*96(英)，0xff- 自适应
+		dvrPicV40.byOSDColorType = 0; // OSD颜色模式：0- 默认（黑白），1-自定义(颜色见struOsdColor)
+		dvrPicV40.struOsdColor.byRed = 255;
+		dvrPicV40.struOsdColor.byGreen = 0;
+		dvrPicV40.struOsdColor.byBlue = 0;
+		dvrPicV40.byAlignment = 0; // 对齐方式：0- 自适应，1- 右对齐，2- 左对齐
+		if( !NET_DVR_SetDVRConfig(m_HKLoginID, NET_DVR_SET_PICCFG_V40, nDvrStartChan, &dvrPicV40, sizeof(dvrPicV40)) ) {
+			dwErr = NET_DVR_GetLastError();
+			MsgLogGM(dwErr);
+			break;
+		}
+		// 对DVR设备进行校时操作 => 设置成跟电脑时间一致...
+		NET_DVR_TIME dvrTime = {0};
+		CTime curTime = CTime::GetCurrentTime();
+		dvrTime.dwYear = curTime.GetYear();
+		dvrTime.dwMonth = curTime.GetMonth();
+		dvrTime.dwDay = curTime.GetDay();
+		dvrTime.dwHour = curTime.GetHour();
+		dvrTime.dwMinute = curTime.GetMinute();
+		dvrTime.dwSecond = curTime.GetSecond();
+		if( !NET_DVR_SetDVRConfig(m_HKLoginID, NET_DVR_SET_TIMECFG, 0, &dvrTime, sizeof(dvrTime)) ) {
+			dwErr = NET_DVR_GetLastError();
+			MsgLogGM(dwErr);
+			break;
+		}
+		// 设置设备异常消息回调接口函数...
+		if( !NET_DVR_SetExceptionCallBack_V30(0, NULL, Csample_hk_cfgDlg::DeviceException, this) ) {
+			dwErr = NET_DVR_GetLastError();
+			MsgLogGM(dwErr);
+			break;
+		}
+		// 从通道配置中获取是否开启本地预览...
+		BOOL bPreview = true;
+		// 配置了可以预览画面才显示...
+		if( bPreview ) {
+			// 准备显示预览画面需要的参数...
+			CWnd * lpPreview = this->GetDlgItem(IDC_PREVIEW);
+			NET_DVR_CLIENTINFO dvrClientInfo = {0};
+			dvrClientInfo.hPlayWnd     = lpPreview->m_hWnd;
+			dvrClientInfo.lChannel     = nDvrStartChan;
+			dvrClientInfo.lLinkMode    = 0;
+			dvrClientInfo.sMultiCastIP = NULL;
+			// 调用实时预览接口...
+			m_HKPlayID = NET_DVR_RealPlay_V30(m_HKLoginID, &dvrClientInfo, NULL, NULL, TRUE);
+			if( m_HKPlayID < 0 ) {
+				dwErr = NET_DVR_GetLastError();
+				MsgLogGM(dwErr);
+				break;
+			}
+		}
+	}while(false);
+	// 如果调用失败，清除所有资源...
+	if( dwErr != GM_NoErr ) {
+		// 只对IPC内部错误打印错误消息...
+		if( NET_DVR_GetLastError() == dwErr ) {
+			TRACE("=== 配置失败(%lu)，错误：%s ===\n", dwErr, NET_DVR_GetErrorMsg(&dwErr));
+		} else {
+			TRACE("=== 配置失败，错误号：%lu ===\n", dwErr);
+		}
+		// 释放IPC已登录资源...
+		this->ClearResource();
+		return dwErr;
+	}
+	// 打印配置完毕通知...
+	TRACE("=== 配置成功 ===\n");
 	return S_OK;
 }
 //
@@ -315,6 +496,11 @@ void Csample_hk_cfgDlg::WaitForExit()
 // 释放建立资源...
 void Csample_hk_cfgDlg::ClearResource()
 {
+	// 释放正在录像资源，实时预览资源...
+	if( m_HKPlayID >= 0 ) {
+		NET_DVR_StopRealPlay(m_HKPlayID);
+		m_HKPlayID = -1;
+	}
 	// 释放登录资源...
 	if( m_HKLoginID >= 0 ) {
 		NET_DVR_Logout_V30(m_HKLoginID);
